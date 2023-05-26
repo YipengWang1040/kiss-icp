@@ -42,6 +42,8 @@
 #include "tf2_ros/static_transform_broadcaster.h"
 #include "tf2_ros/transform_broadcaster.h"
 
+#include <fstream>
+
 namespace kiss_icp_ros {
 
 OdometryServer::OdometryServer(const ros::NodeHandle &nh, const ros::NodeHandle &pnh)
@@ -99,15 +101,26 @@ OdometryServer::OdometryServer(const ros::NodeHandle &nh, const ros::NodeHandle 
     ROS_INFO("KISS-ICP ROS 1 Odometry Node Initialized");
 }
 
+static std::ofstream out("/home/arcs/cw_kiss_icp/time.csv");
 void OdometryServer::RegisterFrame(const sensor_msgs::PointCloud2 &msg) {
     const auto points = utils::PointCloud2ToEigen(msg);
     const auto timestamps = [&]() -> std::vector<double> {
         if (!config_.deskew) return {};
-        return utils::GetTimestamps(msg);
+        size_t idx=0;
+        double size=msg.width;
+        std::vector<double> timestamps(msg.width);
+        for (auto &t: timestamps)
+            t = ((idx++)/size);
+        return timestamps;
     }();
 
+    auto tic = std::chrono::steady_clock::now();
     // Register frame, main entry point to KISS-ICP pipeline
     const auto &[frame, keypoints] = odometry_.RegisterFrame(points, timestamps);
+    auto toc = std::chrono::steady_clock::now();
+    double time_elapsed_ms = std::chrono::duration_cast<std::chrono::nanoseconds>(toc - tic).count() / 1000000.0;
+    ROS_INFO("Registration time: %lfms", time_elapsed_ms);
+    out<<time_elapsed_ms<<','<<std::endl;
 
     // PublishPose
     const auto pose = odometry_.poses().back();
